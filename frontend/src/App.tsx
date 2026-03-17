@@ -15,7 +15,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-900">
-      <Header orchestratorRunning={orchestratorStatus?.running ?? false} />
+      <Header
+        orchestratorRunning={orchestratorStatus?.running ?? false}
+        incidentCount={state?.open_incidents?.length ?? 0}
+        agentCount={5}
+      />
 
       <main className="p-6 space-y-6 max-w-7xl mx-auto">
         {/* SLO Overview */}
