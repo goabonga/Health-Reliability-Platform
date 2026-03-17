@@ -1,15 +1,16 @@
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.models.signals import HealthSignal
-from app.models.slo import SLOResult
+from app.models.slo import SLOResult, SLOConfig
 from app.models.incident import Incident
 from app.models.timeline import TimelineEvent
 from app.models.action import Action
 from app.services.simulator import generate_signal
-from app.services.slo_engine import evaluate_slos
+from app.services.slo_engine import evaluate_slos, DEFAULT_SLOS
 from app.services.incident_detector import detect_incidents
 from app.services.state_store import store
 from app.services.orchestrator import orchestrator
@@ -25,6 +26,14 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_server_error", "message": str(exc)},
+    )
+
+
 @app.on_event("startup")
 async def startup():
     orchestrator.start()
@@ -37,18 +46,32 @@ async def shutdown():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "orchestrator_running": orchestrator.is_running}
 
 
 @app.get("/signals", response_model=HealthSignal)
 async def get_signals():
+    latest = store.get_latest_signal()
+    if latest:
+        return latest
     return generate_signal()
+
+
+@app.get("/signals/history", response_model=List[HealthSignal])
+async def get_signals_history():
+    return store.signals
 
 
 @app.get("/slo/evaluate", response_model=List[SLOResult])
 async def slo_evaluate():
-    signal = generate_signal()
+    latest = store.get_latest_signal()
+    signal = latest if latest else generate_signal()
     return evaluate_slos(signal)
+
+
+@app.get("/slo/config", response_model=List[SLOConfig])
+async def get_slo_config():
+    return DEFAULT_SLOS
 
 
 @app.get("/incidents", response_model=List[Incident])
