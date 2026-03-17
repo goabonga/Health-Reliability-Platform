@@ -1,0 +1,113 @@
+import asyncio
+import uuid
+from datetime import datetime, timezone
+
+from app.services.simulator import generate_signal
+from app.services.slo_engine import evaluate_slos
+from app.services.incident_detector import detect_incidents
+from app.services.state_store import store
+from app.services import timeline_builder as tb
+from app.models.action import Action
+from app.agents.signal_interpreter import MockSignalInterpreter
+from app.agents.incident_triage import MockIncidentTriage
+from app.agents.remediation_planner import MockRemediationPlanner
+from app.agents.explainability_agent import MockExplainabilityAgent
+
+
+class Orchestrator:
+    def __init__(self, interval: float = 5.0) -> None:
+        self.interval = interval
+        self._running = False
+        self._task: asyncio.Task | None = None
+        self.signal_interpreter = MockSignalInterpreter()
+        self.incident_triage = MockIncidentTriage()
+        self.remediation_planner = MockRemediationPlanner()
+        self.explainability_agent = MockExplainabilityAgent()
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(self._loop())
+
+    def stop(self) -> None:
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            self._task = None
+
+    async def _loop(self) -> None:
+        while self._running:
+            try:
+                await self._tick()
+            except Exception as e:
+                store.add_timeline_event(tb.agent_event("orchestrator", f"Error: {e}"))
+            await asyncio.sleep(self.interval)
+
+    async def _tick(self) -> None:
+        # 1. Generate signals
+        signal = generate_signal()
+        store.add_signal(signal)
+        store.add_timeline_event(tb.signal_event(signal))
+
+        # 2. Evaluate SLOs
+        slo_results = evaluate_slos(signal)
+        store.add_timeline_event(tb.slo_event(slo_results))
+
+        # 3. Signal interpretation
+        interpretation = await self.signal_interpreter.run(
+            {"signal": signal.model_dump(mode="json")}
+        )
+        store.add_timeline_event(
+            tb.agent_event("signal-interpreter", interpretation["summary"], interpretation)
+        )
+
+        # 4. Detect incidents
+        incidents = detect_incidents(slo_results)
+
+        for incident in incidents:
+            store.add_incident(incident)
+            store.add_timeline_event(tb.incident_event(incident))
+
+            # 5. Triage
+            triage = await self.incident_triage.run(
+                {"incident": incident.model_dump(mode="json")}
+            )
+            store.add_timeline_event(
+                tb.agent_event("incident-triage", triage["reasoning"], triage)
+            )
+
+            # 6. Remediation
+            remediation = await self.remediation_planner.run(
+                {"incident": incident.model_dump(mode="json")}
+            )
+            for action_desc in remediation["actions"]:
+                action = Action(
+                    id=str(uuid.uuid4())[:8],
+                    timestamp=datetime.now(timezone.utc),
+                    incident_id=incident.id,
+                    action_type="remediation",
+                    description=action_desc,
+                    agent="remediation-planner",
+                )
+                store.add_action(action)
+                store.add_timeline_event(tb.action_event(action))
+
+            # 7. Explainability
+            explanation = await self.explainability_agent.run(
+                {"incident": incident.model_dump(mode="json")}
+            )
+            store.add_timeline_event(
+                tb.agent_event(
+                    "explainability-agent",
+                    explanation["plain_language_summary"],
+                    explanation,
+                )
+            )
+
+
+orchestrator = Orchestrator()
