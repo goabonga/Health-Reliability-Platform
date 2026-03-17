@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -13,16 +15,46 @@ from app.agents.incident_triage import MockIncidentTriage
 from app.agents.remediation_planner import MockRemediationPlanner
 from app.agents.explainability_agent import MockExplainabilityAgent
 
+logger = logging.getLogger(__name__)
+
+
+def _create_agents():
+    use_ai = os.environ.get("MISTRAL_API_KEY") and os.environ.get("USE_AI_AGENTS", "").lower() in ("1", "true", "yes")
+
+    if use_ai:
+        from app.agents.ai_agents import (
+            create_ai_signal_interpreter,
+            create_ai_incident_triage,
+            create_ai_remediation_planner,
+            create_ai_explainability_agent,
+        )
+        logger.info("Using AI-powered agents (Mistral)")
+        return (
+            create_ai_signal_interpreter(),
+            create_ai_incident_triage(),
+            create_ai_remediation_planner(),
+            create_ai_explainability_agent(),
+        )
+
+    logger.info("Using mock agents")
+    return (
+        MockSignalInterpreter(),
+        MockIncidentTriage(),
+        MockRemediationPlanner(),
+        MockExplainabilityAgent(),
+    )
+
 
 class Orchestrator:
     def __init__(self, interval: float = 5.0) -> None:
         self.interval = interval
         self._running = False
         self._task: asyncio.Task | None = None
-        self.signal_interpreter = MockSignalInterpreter()
-        self.incident_triage = MockIncidentTriage()
-        self.remediation_planner = MockRemediationPlanner()
-        self.explainability_agent = MockExplainabilityAgent()
+        agents = _create_agents()
+        self.signal_interpreter = agents[0]
+        self.incident_triage = agents[1]
+        self.remediation_planner = agents[2]
+        self.explainability_agent = agents[3]
 
     @property
     def is_running(self) -> bool:
@@ -49,16 +81,13 @@ class Orchestrator:
             await asyncio.sleep(self.interval)
 
     async def _tick(self) -> None:
-        # 1. Generate signals
         signal = generate_signal()
         store.add_signal(signal)
         store.add_timeline_event(tb.signal_event(signal))
 
-        # 2. Evaluate SLOs
         slo_results = evaluate_slos(signal)
         store.add_timeline_event(tb.slo_event(slo_results))
 
-        # 3. Signal interpretation
         interpretation = await self.signal_interpreter.run(
             {"signal": signal.model_dump(mode="json")}
         )
@@ -66,14 +95,12 @@ class Orchestrator:
             tb.agent_event("signal-interpreter", interpretation["summary"], interpretation)
         )
 
-        # 4. Detect incidents
         incidents = detect_incidents(slo_results)
 
         for incident in incidents:
             store.add_incident(incident)
             store.add_timeline_event(tb.incident_event(incident))
 
-            # 5. Triage
             triage = await self.incident_triage.run(
                 {"incident": incident.model_dump(mode="json")}
             )
@@ -81,7 +108,6 @@ class Orchestrator:
                 tb.agent_event("incident-triage", triage["reasoning"], triage)
             )
 
-            # 6. Remediation
             remediation = await self.remediation_planner.run(
                 {"incident": incident.model_dump(mode="json")}
             )
@@ -97,7 +123,6 @@ class Orchestrator:
                 store.add_action(action)
                 store.add_timeline_event(tb.action_event(action))
 
-            # 7. Explainability
             explanation = await self.explainability_agent.run(
                 {"incident": incident.model_dump(mode="json")}
             )
