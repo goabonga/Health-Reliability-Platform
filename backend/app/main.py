@@ -14,6 +14,7 @@ from app.services.slo_engine import evaluate_slos, DEFAULT_SLOS
 from app.services.incident_detector import detect_incidents
 from app.services.state_store import store
 from app.services.orchestrator import orchestrator
+from app.services.scenarios import scenario_runner
 
 app = FastAPI(title="Health Reliability Platform", version="0.1.0")
 
@@ -119,3 +120,22 @@ async def stop_orchestrator():
 @app.get("/orchestrator/status")
 async def orchestrator_status():
     return {"running": orchestrator.is_running}
+
+
+@app.get("/scenarios")
+async def get_scenarios():
+    return scenario_runner.status
+
+
+@app.post("/scenarios/{name}")
+async def set_scenario(name: str):
+    store.clear()
+    if scenario_runner.set_scenario(name):
+        return {"status": "active", "scenario": name}
+    return JSONResponse(status_code=404, content={"error": f"Unknown scenario: {name}"})
+
+
+@app.post("/scenarios/stop")
+async def stop_scenario():
+    scenario_runner.clear_scenario()
+    return {"status": "stopped"}
