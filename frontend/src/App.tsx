@@ -5,6 +5,7 @@ import { IncidentsPanel } from './components/IncidentsPanel';
 import { ActionsPanel } from './components/ActionsPanel';
 import { TimelinePanel } from './components/TimelinePanel';
 import { PostmortemPanel } from './components/PostmortemPanel';
+import { ScenarioSelector } from './components/ScenarioSelector';
 import { usePolling } from './hooks/useApi';
 import type { SystemState, SLOResult, TimelineEvent, Incident } from './types';
 
@@ -52,7 +53,9 @@ function App() {
           </div>
         </div>
 
-        {/* Stats bar */}
+        {/* Scenario selector + Stats */}
+        <ScenarioSelector />
+
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-3 text-center">
             <div className="text-2xl font-bold text-cyan-400">{state?.total_signals ?? 0}</div>
