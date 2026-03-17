@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.services.simulator import generate_signal
+from app.services.scenarios import scenario_runner
 from app.services.slo_engine import evaluate_slos
 from app.services.incident_detector import detect_incidents
 from app.services.state_store import store
@@ -86,7 +87,7 @@ class Orchestrator:
             await asyncio.sleep(self.interval)
 
     async def _tick(self) -> None:
-        signal = generate_signal()
+        signal = scenario_runner.get_signal() or generate_signal()
         store.add_signal(signal)
         store.add_timeline_event(tb.signal_event(signal))
 
