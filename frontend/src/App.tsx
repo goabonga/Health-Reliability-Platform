@@ -4,13 +4,15 @@ import { SignalsPanel } from './components/SignalsPanel';
 import { IncidentsPanel } from './components/IncidentsPanel';
 import { ActionsPanel } from './components/ActionsPanel';
 import { TimelinePanel } from './components/TimelinePanel';
+import { PostmortemPanel } from './components/PostmortemPanel';
 import { usePolling } from './hooks/useApi';
-import type { SystemState, SLOResult, TimelineEvent } from './types';
+import type { SystemState, SLOResult, TimelineEvent, Incident } from './types';
 
 function App() {
   const { data: state } = usePolling<SystemState>('/state', 5000);
   const { data: slos } = usePolling<SLOResult[]>('/slo/evaluate', 5000);
   const { data: timeline } = usePolling<TimelineEvent[]>('/timeline', 5000);
+  const { data: incidents } = usePolling<Incident[]>('/incidents', 5000);
   const { data: orchestratorStatus } = usePolling<{ running: boolean }>('/orchestrator/status', 5000);
 
   return (
@@ -39,8 +41,9 @@ function App() {
           </div>
 
           {/* Center column */}
-          <div>
-            <IncidentsPanel incidents={state?.open_incidents ?? []} />
+          <div className="space-y-6">
+            <IncidentsPanel incidents={incidents ?? []} />
+            <PostmortemPanel postmortems={state?.postmortems ?? []} />
           </div>
 
           {/* Right column */}

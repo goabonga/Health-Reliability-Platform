@@ -41,6 +41,17 @@ export interface TimelineEvent {
   details?: Record<string, unknown>;
 }
 
+export interface Postmortem {
+  incident_id: string;
+  title: string;
+  summary: string;
+  root_cause: string;
+  impact: string;
+  lessons_learned: string[];
+  action_items: string[];
+  timestamp: string;
+}
+
 export interface SystemState {
   latest_signal: HealthSignal | null;
   total_signals: number;
@@ -48,4 +59,5 @@ export interface SystemState {
   total_incidents: number;
   recent_actions: Action[];
   total_actions: number;
+  postmortems: Postmortem[];
 }
