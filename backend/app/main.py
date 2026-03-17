@@ -79,9 +79,19 @@ async def get_incidents():
     return store.incidents
 
 
+@app.get("/incidents/open", response_model=List[Incident])
+async def get_open_incidents():
+    return store.get_open_incidents()
+
+
 @app.get("/actions", response_model=List[Action])
 async def get_actions():
     return store.actions
+
+
+@app.get("/postmortems")
+async def get_postmortems():
+    return store.postmortems
 
 
 @app.get("/state")

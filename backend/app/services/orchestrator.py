@@ -14,6 +14,7 @@ from app.agents.signal_interpreter import MockSignalInterpreter
 from app.agents.incident_triage import MockIncidentTriage
 from app.agents.remediation_planner import MockRemediationPlanner
 from app.agents.explainability_agent import MockExplainabilityAgent
+from app.agents.postmortem_agent import MockPostmortemAgent
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +28,25 @@ def _create_agents():
             create_ai_incident_triage,
             create_ai_remediation_planner,
             create_ai_explainability_agent,
+            create_ai_postmortem_agent,
         )
         logger.info("Using AI-powered agents (Mistral)")
-        return (
-            create_ai_signal_interpreter(),
-            create_ai_incident_triage(),
-            create_ai_remediation_planner(),
-            create_ai_explainability_agent(),
-        )
+        return {
+            "signal_interpreter": create_ai_signal_interpreter(),
+            "incident_triage": create_ai_incident_triage(),
+            "remediation_planner": create_ai_remediation_planner(),
+            "explainability_agent": create_ai_explainability_agent(),
+            "postmortem_agent": create_ai_postmortem_agent(),
+        }
 
     logger.info("Using mock agents")
-    return (
-        MockSignalInterpreter(),
-        MockIncidentTriage(),
-        MockRemediationPlanner(),
-        MockExplainabilityAgent(),
-    )
+    return {
+        "signal_interpreter": MockSignalInterpreter(),
+        "incident_triage": MockIncidentTriage(),
+        "remediation_planner": MockRemediationPlanner(),
+        "explainability_agent": MockExplainabilityAgent(),
+        "postmortem_agent": MockPostmortemAgent(),
+    }
 
 
 class Orchestrator:
@@ -51,10 +55,11 @@ class Orchestrator:
         self._running = False
         self._task: asyncio.Task | None = None
         agents = _create_agents()
-        self.signal_interpreter = agents[0]
-        self.incident_triage = agents[1]
-        self.remediation_planner = agents[2]
-        self.explainability_agent = agents[3]
+        self.signal_interpreter = agents["signal_interpreter"]
+        self.incident_triage = agents["incident_triage"]
+        self.remediation_planner = agents["remediation_planner"]
+        self.explainability_agent = agents["explainability_agent"]
+        self.postmortem_agent = agents["postmortem_agent"]
 
     @property
     def is_running(self) -> bool:
@@ -95,9 +100,32 @@ class Orchestrator:
             tb.agent_event("signal-interpreter", interpretation["summary"], interpretation)
         )
 
+        # Check for incident resolution — if current SLOs pass, resolve open incidents for that SLO
+        passing_slos = {r.slo_name for r in slo_results if r.passed}
+        for incident in store.get_open_incidents():
+            slo_name = incident.title.replace(" violation", "")
+            if slo_name in passing_slos:
+                resolved = store.resolve_incident(incident.id)
+                if resolved:
+                    store.add_timeline_event(
+                        tb.agent_event("orchestrator", f"Incident resolved: {resolved.title}", resolved.model_dump(mode="json"))
+                    )
+                    # Generate postmortem
+                    postmortem = await self.postmortem_agent.run(
+                        {"incident": resolved.model_dump(mode="json")}
+                    )
+                    store.add_postmortem(postmortem)
+                    store.add_timeline_event(
+                        tb.agent_event("postmortem-agent", f"Postmortem generated for {resolved.title}", postmortem)
+                    )
+
+        # Detect new incidents — skip duplicates
         incidents = detect_incidents(slo_results)
 
         for incident in incidents:
+            if store.has_open_incident(incident.title):
+                continue
+
             store.add_incident(incident)
             store.add_timeline_event(tb.incident_event(incident))
 
