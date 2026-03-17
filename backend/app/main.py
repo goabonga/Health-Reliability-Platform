@@ -6,9 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models.signals import HealthSignal
 from app.models.slo import SLOResult
 from app.models.incident import Incident
+from app.models.timeline import TimelineEvent
 from app.services.simulator import generate_signal
 from app.services.slo_engine import evaluate_slos
 from app.services.incident_detector import detect_incidents
+from app.services.state_store import store
 
 app = FastAPI(title="Health Reliability Platform", version="0.1.0")
 
@@ -39,6 +41,14 @@ async def slo_evaluate():
 
 @app.get("/incidents", response_model=List[Incident])
 async def get_incidents():
-    signal = generate_signal()
-    slo_results = evaluate_slos(signal)
-    return detect_incidents(slo_results)
+    return store.incidents
+
+
+@app.get("/state")
+async def get_state():
+    return store.get_state()
+
+
+@app.get("/timeline", response_model=List[TimelineEvent])
+async def get_timeline():
+    return list(reversed(store.timeline))
